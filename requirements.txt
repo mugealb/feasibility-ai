@@ -1,0 +1,6 @@
+numpy
+pandas
+numpy-financial
+pydantic
+openpyxl
+pytest
