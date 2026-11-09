@@ -57,14 +57,15 @@ def build_levered_cash_flows(a: SolarAssumptions) -> pd.DataFrame:
 
 
 def equity_returns(a: SolarAssumptions) -> dict:
-    """Öz kaynak IRR'ı ve DSCR özetleri."""
+    """Öz kaynak IRR'ı ve DSCR özetleri. Kredi yoksa DSCR değerleri None olur."""
     df = build_levered_cash_flows(a)
     dscr = df["dscr"].dropna()
+    has_debt = not dscr.empty
     return {
         "equity_irr": irr(df["fcfe"].tolist()),
-        "min_dscr": float(dscr.min()),
-        "min_dscr_year": int(dscr.idxmin()),
-        "avg_dscr": float(dscr.mean()),
+        "min_dscr": float(dscr.min()) if has_debt else None,
+        "min_dscr_year": int(dscr.idxmin()) if has_debt else None,
+        "avg_dscr": float(dscr.mean()) if has_debt else None,
     }
 
 
@@ -86,4 +87,3 @@ if __name__ == "__main__":
     print(f"Minimum DSCR: {r['min_dscr']:.2f} (yil {r['min_dscr_year']})")
     print(f"Ortalama DSCR: {r['avg_dscr']:.2f}")
     print(f"Ozkaynak IRR: %{r['equity_irr'] * 100:.2f}")
-    
