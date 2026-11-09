@@ -6,3 +6,5 @@ openpyxl
 pytest
 streamlit
 plotly
+anthropic
+python-dotenv
