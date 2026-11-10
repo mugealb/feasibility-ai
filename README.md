@@ -8,6 +8,8 @@ Describe a project in plain text → get assumptions, DCF, IRR, DSCR, scenarios,
 
 ---
 
+🔗 **Live demo:** https://feasibility-ai-tr.streamlit.app
+
 ## Why
 
 Feasibility studies take days of spreadsheet work, and LLMs are notoriously unreliable with numbers. FeasibilityAI combines both worlds:
