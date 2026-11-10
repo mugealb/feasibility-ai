@@ -1,9 +1,10 @@
 """FeasibilityAI - Streamlit arayüzü.
 
-Çalıştırmak için:  streamlit run app/streamlit_app.py --server.headless true
+Çalıştırmak için:  python -m streamlit run app/streamlit_app.py --server.headless true
 """
 
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -24,6 +25,39 @@ st.set_page_config(page_title="FeasibilityAI", page_icon="☀️", layout="wide"
 
 DSCR_COVENANT = 1.20
 base = konya_example()
+
+# ---------------- Yapay zeka kullanım sınırı (bakiye koruması) ----------------
+AI_LIMIT_PER_SESSION = 5    # bir ziyaretçinin bir oturumdaki yapay zeka işlemi
+AI_LIMIT_PER_DAY = 100      # tüm ziyaretçilerin günlük toplam yapay zeka işlemi
+
+
+@st.cache_resource
+def _daily_usage() -> dict:
+    """Sunucu genelinde paylaşılan günlük sayaç."""
+    return {"date": None, "count": 0}
+
+
+def ai_allowed() -> tuple:
+    usage = _daily_usage()
+    today = date.today().isoformat()
+    if usage["date"] != today:
+        usage["date"], usage["count"] = today, 0
+    if st.session_state.get("ai_calls", 0) >= AI_LIMIT_PER_SESSION:
+        return False, (f"Bu oturumdaki {AI_LIMIT_PER_SESSION} yapay zeka hakkınız doldu. "
+                       "Hesap motoru, grafikler ve Excel çıktısı sınırsız kullanılabilir.")
+    if usage["count"] >= AI_LIMIT_PER_DAY:
+        return False, "Bugünkü yapay zeka kullanım sınırına ulaşıldı. Lütfen yarın tekrar deneyin."
+    return True, ""
+
+
+def record_ai_use():
+    st.session_state["ai_calls"] = st.session_state.get("ai_calls", 0) + 1
+    _daily_usage()["count"] += 1
+
+
+def ai_calls_left() -> int:
+    return max(AI_LIMIT_PER_SESSION - st.session_state.get("ai_calls", 0), 0)
+
 
 ORNEK_METIN = (
     "Konya Karapınar'da 12 MWp kapasiteli bir güneş enerjisi santrali kurmayı planlıyoruz. "
@@ -72,6 +106,11 @@ def run_extraction():
     if not text:
         st.session_state["extract_error"] = "Önce bir proje metni yazın."
         return
+    allowed, reason = ai_allowed()
+    if not allowed:
+        st.session_state["extract_error"] = reason
+        return
+    record_ai_use()
     try:
         with st.spinner("Claude metni okuyor..."):
             a, report, notes = extract_assumptions(text)
@@ -106,6 +145,7 @@ with st.expander("🤖 Proje metninden varsayımları çıkar (yapay zeka)", exp
     b1, b2, _ = st.columns([1, 1, 3])
     b1.button("Varsayımları çıkar", type="primary", on_click=run_extraction)
     b2.button("Örnek varsayımlara dön", on_click=reset_to_example)
+    st.caption(f"Bu oturumda kalan yapay zeka hakkı: {ai_calls_left()} / {AI_LIMIT_PER_SESSION}")
 
     if st.session_state.get("extract_error"):
         st.error(st.session_state["extract_error"])
@@ -267,7 +307,7 @@ with tab4:
             fig3.add_vline(x=0, line_dash="dash", annotation_text="NPV = 0")
             fig3.update_layout(height=380)
             st.plotly_chart(fig3, width="stretch")
-            st.dataframe(format_percentiles(s["percentiles"]), width="stretch") 
+            st.dataframe(format_percentiles(s["percentiles"]), width="stretch")
 
 # ---------------- Yatırım Komitesi Notu (yapay zeka) ----------------
 st.divider()
@@ -276,17 +316,23 @@ st.caption("Rakamlar hesap motorundan alınır; yapay zeka yalnızca yorumlar ve
            "Nottaki her sayı otomatik olarak kontrol edilir.")
 
 if st.button("Notu yaz", type="primary", key="memo_button"):
-    from ai.memo import build_facts, check_numbers, write_memo
+    allowed, reason = ai_allowed()
+    if not allowed:
+        st.warning(reason)
+    else:
+        from ai.memo import build_facts, check_numbers, write_memo
 
-    facts = build_facts(a)
-    try:
-        with st.spinner("Claude notu yazıyor... (yaklaşık 30-60 saniye)"):
-            memo = write_memo(facts)
-        st.session_state["memo_text"] = memo
-        st.session_state["memo_unknown"] = check_numbers(memo, facts)
-        st.session_state["memo_for"] = a.model_dump_json()
-    except Exception as err:
-        st.error(f"Not yazılamadı: {err}")
+        record_ai_use()
+        facts = build_facts(a)
+        try:
+            with st.spinner("Claude notu yazıyor... (yaklaşık 30-60 saniye)"):
+                memo = write_memo(facts)
+            st.session_state["memo_text"] = memo
+            st.session_state["memo_unknown"] = check_numbers(memo, facts)
+            st.session_state["memo_for"] = a.model_dump_json()
+        except Exception as err:
+            st.error(f"Not yazılamadı: {err}")
+st.caption(f"Bu oturumda kalan yapay zeka hakkı: {ai_calls_left()} / {AI_LIMIT_PER_SESSION}")
 
 if st.session_state.get("memo_text"):
     if st.session_state.get("memo_for") != a.model_dump_json():
@@ -298,8 +344,6 @@ if st.session_state.get("memo_text"):
     else:
         st.success("✅ Rakam kontrolü: Nottaki tüm sayılar hesap motorundan geliyor.")
     st.markdown(st.session_state["memo_text"])
-    st.download_button("Notu indir (.md)", st.session_state["memo_text"],
-                       file_name="yatirim_komitesi_notu.md", mime="text/markdown")
 
 # ---------------- İndirmeler ----------------
 st.divider()
