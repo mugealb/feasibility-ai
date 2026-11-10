@@ -300,3 +300,25 @@ if st.session_state.get("memo_text"):
     st.markdown(st.session_state["memo_text"])
     st.download_button("Notu indir (.md)", st.session_state["memo_text"],
                        file_name="yatirim_komitesi_notu.md", mime="text/markdown")
+
+# ---------------- İndirmeler ----------------
+st.divider()
+st.header("📥 İndir")
+from export.excel import build_excel
+from export.word import build_word
+
+d1, d2 = st.columns(2)
+d1.download_button(
+    "Excel modelini indir (.xlsx)", build_excel(a),
+    file_name="fizibilite_modeli.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
+if st.session_state.get("memo_text"):
+    d2.download_button(
+        "Notu Word olarak indir (.docx)",
+        build_word(st.session_state["memo_text"], a.project_name),
+        file_name="yatirim_komitesi_notu.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+else:
+    d2.info("Word belgesi için önce yukarıdan 'Notu yaz' düğmesine basın.")
