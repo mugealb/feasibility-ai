@@ -267,4 +267,36 @@ with tab4:
             fig3.add_vline(x=0, line_dash="dash", annotation_text="NPV = 0")
             fig3.update_layout(height=380)
             st.plotly_chart(fig3, width="stretch")
-            st.dataframe(format_percentiles(s["percentiles"]), width="stretch")
+            st.dataframe(format_percentiles(s["percentiles"]), width="stretch") 
+
+# ---------------- Yatırım Komitesi Notu (yapay zeka) ----------------
+st.divider()
+st.header("📝 Yatırım Komitesi Notu")
+st.caption("Rakamlar hesap motorundan alınır; yapay zeka yalnızca yorumlar ve yazar. "
+           "Nottaki her sayı otomatik olarak kontrol edilir.")
+
+if st.button("Notu yaz", type="primary", key="memo_button"):
+    from ai.memo import build_facts, check_numbers, write_memo
+
+    facts = build_facts(a)
+    try:
+        with st.spinner("Claude notu yazıyor... (yaklaşık 30-60 saniye)"):
+            memo = write_memo(facts)
+        st.session_state["memo_text"] = memo
+        st.session_state["memo_unknown"] = check_numbers(memo, facts)
+        st.session_state["memo_for"] = a.model_dump_json()
+    except Exception as err:
+        st.error(f"Not yazılamadı: {err}")
+
+if st.session_state.get("memo_text"):
+    if st.session_state.get("memo_for") != a.model_dump_json():
+        st.info("Varsayımlar değişti. Güncel not için 'Notu yaz' düğmesine tekrar basın.")
+    unknown = st.session_state.get("memo_unknown", [])
+    if unknown:
+        st.warning("⚠️ Rakam kontrolü: Notta hesap motorundan gelmeyen sayılar var: "
+                   + ", ".join(unknown) + ". Bu kısımları dikkatle inceleyin.")
+    else:
+        st.success("✅ Rakam kontrolü: Nottaki tüm sayılar hesap motorundan geliyor.")
+    st.markdown(st.session_state["memo_text"])
+    st.download_button("Notu indir (.md)", st.session_state["memo_text"],
+                       file_name="yatirim_komitesi_notu.md", mime="text/markdown")
