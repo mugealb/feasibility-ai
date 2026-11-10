@@ -5,6 +5,7 @@ Prensip:
 - Claude sadece yorumlar ve yazar; yeni rakam hesaplamaz.
 - check_numbers(): Nottaki her sayıyı verilen rakamlarla karşılaştırır,
   listede olmayan sayıları "doğrulanamadı" olarak raporlar.
+  Harfle bitişik sayılar (P50, P90 gibi sektör terimleri) kontrol dışıdır.
 """
 
 import json
@@ -56,8 +57,15 @@ def build_facts(a: SolarAssumptions) -> dict:
         "Kredi oranı": tr_pct(a.debt_ratio),
         "Kredi faizi": tr_pct(a.interest_rate),
         "Kredi vadesi": f"{a.loan_tenor_years} yıl",
+        "Kredi geri ödeme yapısı": "Eşit taksitli (anüite)",
         "İlk yıl üretim": f"{tr_money(a.first_year_production_mwh)} MWh",
-        "Elektrik fiyatı": f"{tr_dec(a.electricity_price_per_mwh, 1)} USD/MWh",
+        "Yıllık üretim kaybı (panel degradasyonu)": tr_pct(a.degradation_rate),
+        "Elektrik fiyatı (ilk yıl)": f"{tr_dec(a.electricity_price_per_mwh, 1)} USD/MWh",
+        "Yıllık elektrik fiyatı artışı": tr_pct(a.price_escalation),
+        "Yıllık işletme gideri (OPEX, ilk yıl)": f"{tr_money(a.capacity_mwp * a.opex_per_mwp_year)} USD",
+        "Yıllık OPEX artışı": tr_pct(a.opex_escalation),
+        "Kurumlar vergisi oranı": tr_pct(a.tax_rate),
+        "Amortisman süresi": f"{a.depreciation_years} yıl",
         "İskonto oranı (WACC)": tr_pct(a.discount_rate),
         "Proje NPV": f"{tr_money(p['project_npv'])} USD",
         "Proje IRR": tr_pct(p["project_irr"]),
@@ -77,7 +85,9 @@ KESİN KURALLAR:
 1. SADECE verilen JSON'daki rakamları kullan; rakamları AYNEN, verildiği biçimde yaz.
 2. Yeni rakam HESAPLAMA (fark, oran, toplam, yüzde dahil). Karşılaştırmayı sözle yap
    (ör. "proje getirisi sermaye maliyetinin üzerinde").
-3. Verilmeyen bir bilgiyi uydurma; gerekiyorsa "ek analiz gerektirir" de. 4. Önerilerde bile yeni sayı, oran veya hedef değer yazma (ör. hedef kredi oranı, faiz artışı miktarı). Önerileri sözle ifade et (ör. "kredi oranının düşürülmesi değerlendirilmeli").
+3. Verilmeyen bir bilgiyi uydurma; gerekiyorsa "ek analiz gerektirir" de.
+4. Önerilerde bile yeni sayı, oran veya hedef değer yazma (ör. hedef kredi oranı, faiz artışı miktarı).
+   Önerileri sözle ifade et (ör. "kredi oranının düşürülmesi değerlendirilmeli").
 
 YAPI (Markdown başlıklarıyla):
 ## 1. Özet ve Öneri  (2-3 cümle; net bir öneri: Onay / Koşullu onay / Ret)
@@ -106,7 +116,8 @@ def write_memo(facts: dict) -> str:
 
 
 # --- Rakam kontrolü ---
-NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+# Önünde harf olan sayılar (P50, P90, O&M gibi terimler) yakalanmaz.
+NUMBER = re.compile(r"(?<![A-Za-zÇĞİÖŞÜçğıöşü])\d+(?:[.,]\d+)*")
 
 
 def _normalize(token: str) -> str:
