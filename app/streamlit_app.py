@@ -25,30 +25,126 @@ st.set_page_config(page_title="FeasibilityAI", page_icon="☀️", layout="wide"
 DSCR_COVENANT = 1.20
 base = konya_example()
 
+ORNEK_METIN = (
+    "Konya Karapınar'da 12 MWp kapasiteli bir güneş enerjisi santrali kurmayı planlıyoruz. "
+    "Toplam yatırım bütçesi yaklaşık 8,1 milyon dolar. Bölgede yıllık üretimin 20.400 MWh "
+    "civarında olması bekleniyor. Elektriği 25 yıl boyunca 0,072 $/kWh fiyatla satmayı "
+    "hedefliyoruz. Finansmanın %65'i bankadan, %9,5 faizle 12 yıl vadeli krediyle sağlanacak. "
+    "Yıllık işletme ve bakım gideri 140 bin dolar civarında."
+)
+
+
+def clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
+
+def values_from(a: SolarAssumptions) -> dict:
+    """Varsayımları kenar çubuğundaki kutucukların değerlerine çevirir."""
+    return {
+        "capacity": float(clamp(a.capacity_mwp, 1.0, 500.0)),
+        "life": int(clamp(a.project_life_years, 10, 40)),
+        "capex": int(clamp(round(a.capex_per_mwp), 100_000, 2_000_000)),
+        "yield": int(clamp(round(a.specific_yield_mwh_per_mwp), 500, 3_000)),
+        "degradation": round(clamp(a.degradation_rate * 100, 0.0, 2.0), 2),
+        "price": float(round(clamp(a.electricity_price_per_mwh, 10.0, 300.0), 2)),
+        "price_esc": round(clamp(a.price_escalation * 100, -5.0, 10.0), 2),
+        "opex": int(clamp(round(a.opex_per_mwp_year), 0, 100_000)),
+        "tax": round(clamp(a.tax_rate * 100, 0.0, 50.0), 2),
+        "debt": round(clamp(a.debt_ratio * 100, 0.0, 90.0), 2),
+        "interest": round(clamp(a.interest_rate * 100, 0.0, 25.0), 2),
+        "tenor": int(clamp(a.loan_tenor_years, 1, 20)),
+        "discount": round(clamp(a.discount_rate * 100, 1.0, 30.0), 2),
+    }
+
+
+# İlk açılışta örnek değerler
+for key, value in values_from(base).items():
+    st.session_state.setdefault(key, value)
+st.session_state.setdefault("project_text", ORNEK_METIN)
+
+
+def run_extraction():
+    """'Varsayımları çıkar' düğmesi: Claude metni okur, Python dönüştürür."""
+    from ai.extract import extract_assumptions
+
+    st.session_state["extract_error"] = None
+    text = st.session_state.get("project_text", "").strip()
+    if not text:
+        st.session_state["extract_error"] = "Önce bir proje metni yazın."
+        return
+    try:
+        with st.spinner("Claude metni okuyor..."):
+            a, report, notes = extract_assumptions(text)
+    except Exception as err:
+        st.session_state["extract_error"] = f"Varsayımlar çıkarılamadı: {err}"
+        return
+    for key, value in values_from(a).items():
+        st.session_state[key] = value
+    st.session_state["extract_report"] = report
+    st.session_state["extract_notes"] = notes
+
+
+def reset_to_example():
+    for key, value in values_from(base).items():
+        st.session_state[key] = value
+    st.session_state["extract_report"] = None
+    st.session_state["extract_error"] = None
+
+
+def fmt_value(v):
+    return f"{v:,.0f}" if abs(v) >= 100 else f"{v:.4g}"
+
+
+# ---------------- Başlık ----------------
+st.title("☀️ FeasibilityAI — GES Fizibilite Analizi")
+st.caption("Tüm rakamlar test edilmiş Python hesap motorundan gelir. "
+           "Örnek varsayımlar hayalidir; bu araç yatırım tavsiyesi değildir.")
+
+# ---------------- Yapay zeka: metinden varsayım çıkarma ----------------
+with st.expander("🤖 Proje metninden varsayımları çıkar (yapay zeka)", expanded=True):
+    st.text_area("Proje açıklaması", key="project_text", height=140)
+    b1, b2, _ = st.columns([1, 1, 3])
+    b1.button("Varsayımları çıkar", type="primary", on_click=run_extraction)
+    b2.button("Örnek varsayımlara dön", on_click=reset_to_example)
+
+    if st.session_state.get("extract_error"):
+        st.error(st.session_state["extract_error"])
+
+    report = st.session_state.get("extract_report")
+    if report is not None:
+        st.success("Varsayımlar soldaki menüye aktarıldı. Lütfen kontrol edin ve gerekirse düzeltin. "
+                   "'Varsayılan' satırları metinde bulunamadı, örnek değerlerle dolduruldu.")
+        shown = report.copy()
+        shown["Deger"] = shown["Deger"].map(fmt_value)
+        st.dataframe(shown, width="stretch")
+        if st.session_state.get("extract_notes"):
+            st.info(f"Claude'un notu: {st.session_state['extract_notes']}")
+        st.caption("Birim dönüşümleri ve bütün hesaplar Python'da yapılır; yapay zeka yalnızca metni okur.")
+
 # ---------------- Kenar çubuğu: varsayımlar ----------------
 with st.sidebar:
     st.header("Varsayımlar")
 
     st.subheader("Proje")
-    capacity = st.number_input("Kurulu güç (MWp)", 1.0, 500.0, float(base.capacity_mwp), 1.0)
-    life = st.slider("İşletme süresi (yıl)", 10, 40, base.project_life_years)
-    capex = st.number_input("Yatırım maliyeti (USD/MWp)", 100_000, 2_000_000, int(base.capex_per_mwp), 10_000)
+    capacity = st.number_input("Kurulu güç (MWp)", 1.0, 500.0, step=1.0, key="capacity")
+    life = st.slider("İşletme süresi (yıl)", 10, 40, key="life")
+    capex = st.number_input("Yatırım maliyeti (USD/MWp)", 100_000, 2_000_000, step=10_000, key="capex")
 
     st.subheader("Üretim ve gelir")
-    yield_ = st.number_input("İlk yıl üretim (MWh/MWp)", 500, 3_000, int(base.specific_yield_mwh_per_mwp), 10)
-    degradation = st.slider("Yıllık verim kaybı (%)", 0.0, 2.0, round(base.degradation_rate * 100, 2), 0.1)
-    price = st.number_input("Elektrik fiyatı (USD/MWh)", 10.0, 300.0, float(base.electricity_price_per_mwh), 1.0)
-    price_esc = st.slider("Yıllık fiyat artışı (%)", -5.0, 10.0, round(base.price_escalation * 100, 2), 0.5)
+    yield_ = st.number_input("İlk yıl üretim (MWh/MWp)", 500, 3_000, step=10, key="yield")
+    degradation = st.slider("Yıllık verim kaybı (%)", 0.0, 2.0, step=0.1, key="degradation")
+    price = st.number_input("Elektrik fiyatı (USD/MWh)", 10.0, 300.0, step=1.0, key="price")
+    price_esc = st.slider("Yıllık fiyat artışı (%)", -5.0, 10.0, step=0.1, key="price_esc")
 
     st.subheader("Gider ve vergi")
-    opex = st.number_input("OPEX (USD/MWp/yıl)", 0, 100_000, int(base.opex_per_mwp_year), 500)
-    tax = st.slider("Kurumlar vergisi (%)", 0.0, 50.0, round(base.tax_rate * 100, 2), 1.0)
+    opex = st.number_input("OPEX (USD/MWp/yıl)", 0, 100_000, step=500, key="opex")
+    tax = st.slider("Kurumlar vergisi (%)", 0.0, 50.0, step=0.5, key="tax")
 
     st.subheader("Finansman")
-    debt = st.slider("Kredi oranı (%)", 0.0, 90.0, round(base.debt_ratio * 100, 2), 5.0)
-    interest = st.slider("Kredi faizi (%)", 0.0, 25.0, round(base.interest_rate * 100, 2), 0.5)
-    tenor = st.slider("Kredi vadesi (yıl)", 1, 20, base.loan_tenor_years)
-    discount = st.slider("İskonto oranı / WACC (%)", 1.0, 30.0, round(base.discount_rate * 100, 2), 0.5)
+    debt = st.slider("Kredi oranı (%)", 0.0, 90.0, step=1.0, key="debt")
+    interest = st.slider("Kredi faizi (%)", 0.0, 25.0, step=0.1, key="interest")
+    tenor = st.slider("Kredi vadesi (yıl)", 1, 20, key="tenor")
+    discount = st.slider("İskonto oranı / WACC (%)", 1.0, 30.0, step=0.1, key="discount")
 
 try:
     a = SolarAssumptions(
@@ -73,11 +169,7 @@ except ValidationError as err:
     st.error(f"Varsayımlarda hata var:\n\n{err}")
     st.stop()
 
-# ---------------- Başlık ve ana göstergeler ----------------
-st.title("☀️ FeasibilityAI — GES Fizibilite Analizi")
-st.caption("Tüm rakamlar test edilmiş Python hesap motorundan gelir. "
-           "Örnek varsayımlar hayalidir; bu araç yatırım tavsiyesi değildir.")
-
+# ---------------- Ana göstergeler ----------------
 p = project_returns(a)
 e = equity_returns(a)
 
@@ -129,14 +221,14 @@ with tab2:
 # ---------------- Senaryolar ----------------
 with tab3:
     sc = scenario_table(a)
-    shown = pd.DataFrame({
+    shown_sc = pd.DataFrame({
         "Proje NPV (USD)": sc["Proje NPV (USD)"].map(lambda v: f"{v:,.0f}"),
         "Proje IRR": sc["Proje IRR"].map(lambda v: f"{v:.1%}"),
         "Ozkaynak IRR": sc["Ozkaynak IRR"].map(lambda v: f"{v:.1%}"),
         "Min DSCR": sc["Min DSCR"].map(lambda v: "-" if pd.isna(v) else f"{v:.2f}"),
     })
     st.subheader("Kötümser / baz / iyimser")
-    st.dataframe(shown, width="stretch")
+    st.dataframe(shown_sc, width="stretch")
 
     st.subheader("Öz kaynak IRR (%): elektrik fiyatı × yatırım maliyeti")
     g = sensitivity_grid(a, "Ozkaynak IRR")
